@@ -1,0 +1,14 @@
+{% extends layout %}
+
+{% block title %}
+    {{ title }}
+{% endblock %}
+
+{% block content %}
+    <h1>News</h1>
+    {% for post in posts %}
+        <h2><a href='/{{ post.name }}/{{ post.id }}'>{{ post.title }}</a></h2>
+        <a href='/{{ post.name }}'>{{ post.name }}</a>
+        <p>{{ post.data }}</p>
+    {% endfor %}
+{% endblock %}
