@@ -4,8 +4,14 @@
     <title>{% block title %}Test Application{% endblock %}</title>
 </head>
 <body>
-
-{% block content %}{% endblock %}
+    <h1>Test Silex Application</h1><hr>
+    <ul>
+        <li><a href='/'>Main</a></li>
+    {% for li in nav %}
+        <li><a href='/{{ li }}'>{{ li|title }}</a></li>
+    {% endfor %}
+    </ul>
+    {% block content %}{% endblock %}
 
 </body>
 </html>

@@ -1,9 +1,13 @@
 <?php
 require_once __DIR__ . '/bootstrap.php';
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\Validator\Constraints as Assert;
 
 $app = new Silex\Application();
 
 $app->register(new \Silex\Provider\FormServiceProvider());
+$app->register(new Silex\Provider\ValidatorServiceProvider());
 $app->register(new Silex\Provider\TranslationServiceProvider(), array(
     'translator.messages' => array(),
 ));
@@ -20,7 +24,7 @@ $app->register(new Silex\Provider\DoctrineServiceProvider(), array(
         'charset' => 'utf8',
     ),
 ));
-
+// DB INIT AND FEW TEST ENTRIES
 $schema = $app['db']->getSchemaManager();
 if (!$schema->tablesExist('categories')) {
     $cats = new \Doctrine\DBAL\Schema\Table('categories');
@@ -62,46 +66,105 @@ if (!$schema->tablesExist('posts')) {
         'date' => date('Y-m-d H:i:s')
     ));
 }
-
-
+//
+// LOAD LAYOUT
 $app->before(function () use ($app) {
     $app['twig']->addGlobal('layout', $app['twig']->loadTemplate('layout.twig'));
 });
-
+//
+// GET NAVIGATION
+$app['nav'] = $app->share(function ($app) {
+    $cat_array = $app['db']->fetchAll("SELECT * FROM categories ORDER BY id ASC");
+    foreach ($cat_array as $cat) {
+        $cats[$cat['id']] = $cat['name'];
+    }
+    return $cats;
+});
+//
+// MAIN PAGE CONTROLLER. PRINTS ALL POSTS
 $app->get('/', function() use ($app) {
     $posts = $app['db']->fetchAll("
-    SELECT posts.id, posts.title, posts.data, categories.name
+    SELECT posts.id, posts.title, posts.data, posts.date, categories.name
     FROM posts JOIN categories
     ON posts.cat_id=categories.id
     ORDER BY date DESC
     ");
 
-
     return $app['twig']->render('index.twig', array(
-        'title' => 'Main page',
+        'title' => 'News',
         'posts' => $posts,
+        'nav' => $app['nav'],
     ));
 });
+// CATEGORY PAGE CONTROLLER. PRINTS POSTS IN CATEGORY
+$app->get('/{name}', function($name) use ($app) {
+    $cat_id = $app['db']->fetchColumn("SELECT id FROM categories WHERE name=?", array((string) $name));
+    if (!$cat_id) {
+        $app->abort(404, "Category not exists");
+    }
+    $posts = $app['db']->fetchAll("
+    SELECT posts.id, posts.title, posts.data, posts.date, categories.name
+    FROM posts JOIN categories
+    ON posts.cat_id=categories.id
+    AND cat_id = ?
+    ", array((int) $cat_id));
 
-$app->match('/add', function(\Symfony\Component\HttpFoundation\Request $request) use ($app) {
-
-    $cat_array = $app['db']->fetchAll("SELECT * FROM categories ORDER BY id ASC");
-    foreach ($cat_array as $cat) {
-        $cats[$cat['id']] = $cat['name'];
+    if (!$posts) {
+        return new Response('Posts not found in category', 200);
     }
 
+    return $app['twig']->render('index.twig', array(
+        'title' => 'Category: '.$posts[0]['name'],
+        'posts' => $posts,
+        'nav' => $app['nav'],
+
+    ));
+})
+->assert('name', '\w+');
+//
+// POST CONTROLLER. PRINTS POST IN CATEGORY
+$app->get('/{cat}/{id}', function ($cat, $id) use ($app) {
+    $posts = $app['db']->fetchAll("
+    SELECT posts.id, posts.title, posts.data, posts.date, categories.name
+    FROM posts JOIN categories
+    ON posts.cat_id=categories.id
+    AND categories.name = ?
+    AND posts.id = ?
+    ", array((string) $cat, (int) $id));
+
+    if (!$posts) {
+        $app->abort(404, "Post not exists");
+    }
+
+    return $app['twig']->render('index.twig', array(
+        'title' => '',
+        'posts' => $posts,
+        'nav' => $app['nav'],
+
+    ));
+})
+->assert('cat', '\w+')
+->assert('id', '\d+');
+//
+// ADD POST CONTROLLER. WRITE ENTRY INTO DB
+$app->match('/add', function(Request $request) use ($app) {
     $data = array(
-        'title' => 'News title',
-        'data' => 'News data',
-        'category' => $cats,
+        'title' => '',
+        'data' => '',
+        'category' => $app['nav'],
     );
 
     $form = $app['form.factory']->createBuilder('form', $data)
-        ->add('title')
-        ->add('data','textarea')
+        ->add('title', 'text', array(
+            'constraints' => array(new Assert\NotBlank(), new Assert\Length(array('max' => 32)))
+        ))
+        ->add('data','textarea', array(
+            'constraints'=>array(new Assert\NotBlank(), new Assert\Length(array('min' => 5)))
+        ))
         ->add('category', 'choice', array(
             'choices' => $data['category'],
             'expanded' => false,
+            'constraints' => new Assert\Choice(array_keys($data['category'])),
         ))
         ->getForm();
 
@@ -116,52 +179,18 @@ $app->match('/add', function(\Symfony\Component\HttpFoundation\Request $request)
             'cat_id' => $data['category'],
             'date' => date('Y-m-d H:i:s'),
         ));
-        return $app->redirect('/');
+        return new Response('Post added successfully', 201);
     }
 
     return $app['twig']->render('add.twig', array(
         'title' => 'Add news',
         'form' => $form->createView(),
+        'nav' => $app['nav'],
+
     ));
-});
-
-$app->get('/{name}', function($name) use ($app) {
-    $cat_id = $app['db']->fetchColumn("SELECT id FROM categories WHERE name=?", array((string) $name));
-    if (!$cat_id) {
-        return $app->redirect('/');
-    }
-    $posts = $app['db']->fetchAll("
-    SELECT posts.id, posts.title, posts.data, categories.name
-    FROM posts JOIN categories
-    ON posts.cat_id=categories.id
-    AND cat_id = ?
-    ", array((int) $cat_id));
-
-    return $app['twig']->render('index.twig', array(
-        'title' => 'Main page',
-        'posts' => $posts,
-    ));
-});
-
-$app->get('/{cat}/{id}', function ($cat, $id) use ($app) {
-    $posts = $app['db']->fetchAll("
-    SELECT posts.id, posts.title, posts.data, categories.name
-    FROM posts JOIN categories
-    ON posts.cat_id=categories.id
-    AND categories.name = ?
-    AND posts.id = ?
-    ", array((string) $cat, (int) $id));
-
-    if (!$posts) {
-        return new \Symfony\Component\HttpFoundation\Response('Error', 404);
-    }
-
-    return $app['twig']->render('index.twig', array(
-        'title' => 'Main page',
-        'posts' => $posts,
-    ));
-});
-
+})
+->method(('GET|POST'));
+//
 
 return $app;
 ?>
