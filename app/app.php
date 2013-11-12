@@ -15,6 +15,7 @@ $app->register(new Silex\Provider\TwigServiceProvider(), array(
     'twig.path' => __DIR__.'/../web/views',
 ));
 
+// DB INIT AND FEW TEST ENTRIES
 $app->register(new Silex\Provider\DoctrineServiceProvider(), array(
     'db.options' => array(
         'driver' => 'pdo_mysql',
@@ -24,7 +25,6 @@ $app->register(new Silex\Provider\DoctrineServiceProvider(), array(
         'charset' => 'utf8',
     ),
 ));
-// DB INIT AND FEW TEST ENTRIES
 $schema = $app['db']->getSchemaManager();
 if (!$schema->tablesExist('categories')) {
     $cats = new \Doctrine\DBAL\Schema\Table('categories');
